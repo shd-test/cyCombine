@@ -1,0 +1,72 @@
+name: Sync Fork with Upstream
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+  
+jobs:
+  sync:
+    name: Sync Fork
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout fork
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+        
+    - name: Configure Git
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+    - name: Add upstream remote
+      run: |
+        git remote add upstream https://github.com/biosurf/cyCombine.git
+        git fetch upstream
+        
+    - name: Check if sync needed
+      id: check_sync
+      run: |
+        # Get the latest commit hash from upstream main
+        UPSTREAM_HASH=$(git rev-parse upstream/master)
+        # Get the latest commit hash from origin master
+        ORIGIN_HASH=$(git rev-parse origin/master)
+        
+        echo "upstream_hash=$UPSTREAM_HASH" >> $GITHUB_OUTPUT
+        echo "origin_hash=$ORIGIN_HASH" >> $GITHUB_OUTPUT
+        
+        if [ "$UPSTREAM_HASH" != "$ORIGIN_HASH" ]; then
+          echo "sync_needed=true" >> $GITHUB_OUTPUT
+          echo "✅ Sync needed - upstream has new commits"
+        else
+          echo "sync_needed=false" >> $GITHUB_OUTPUT
+          echo "ℹ️ No sync needed - fork is up to date"
+        fi
+        
+    - name: Sync master branch
+      if: steps.check_sync.outputs.sync_needed == 'true'
+      run: |
+        # Switch to master branch
+        git checkout master
+        
+        # Merge upstream changes
+        git merge upstream/master --no-edit
+    
+    - name: Push changes
+      if: steps.check_sync.outputs.sync_needed == 'true'
+      run: |
+        # Push changes to origin
+        git push origin master
+        
+    - name: Create sync summary
+      if: steps.check_sync.outputs.sync_needed == 'true'
+      run: |
+        echo "🔄 Fork Successfully Synced" >> $GITHUB_STEP_SUMMARY
+        
+    - name: No sync summary
+      if: steps.check_sync.outputs.sync_needed == 'false'
+      run: |
+        echo "✅ Fork Already Up to Date" >> $GITHUB_STEP_SUMMARY
